@@ -80,23 +80,25 @@ func parse_options() {
 func send_mail(ss *SentStatus, file string, from string, to string, msg *[]byte) {
 	log.Println(file, "sending mail to", to, "attempt:", ss.Attempts)
 	dest := []string{to}
+
 	err := smtp.SendMail(config.SmtpAddr, config.SmtpAuth, from, dest, *msg)
 	if err != nil {
 		log.Println(file, "SMTP error, mail to", to, err)
 		ss.Status = 0
 		ss.Attempts++
 		ss.Error = err.Error()
+
 		if ss.Attempts >= config.MaxAttempts {
 			log.Println(file, "max SMTP attempts reached for", to, "... giving up")
 			ss.Status = 2
-		}
-		if ss.Attempts > 30 {
+		} else if ss.Attempts > 30 {
 			ss.NextAttempt = time.Now().Add(time.Duration(30) * time.Duration(60) * time.Second)
 		} else {
 			ss.NextAttempt = time.Now().Add(time.Duration(ss.Attempts) * time.Duration(60) * time.Second)
 		}
 		return
 	}
+
 	ss.Status = 2
 	ss.Error = ""
 	log.Println(file, "successfully sent to", to)
@@ -126,34 +128,41 @@ func spool_flush() {
 func read_json(file string) {
 	f, err := os.Open(file)
 	if err != nil {
+		log.Printf("error while opening json file %s", file)
 		return
 	}
+
 	var buffer bytes.Buffer
 	_, err = io.Copy(&buffer, f)
 	f.Close()
 	if err != nil {
+		log.Printf("error while copying buffer from json file %s", file)
 		return
 	}
+
 	err = json.Unmarshal(buffer.Bytes(), &status)
 	if err != nil {
-		log.Println(err)
-	} else {
-		// reset transactions in progress
-		for key, _ := range status {
-			for i, ss := range status[key].To {
-				if ss.Status == 1 {
-					status[key].To[i].Status = 0
-				}
+		log.Println("error while unmarshaling buffer %s", err)
+		return
+	}
+
+	// reset transactions in progress
+	for key, _ := range status {
+		for i, ss := range status[key].To {
+			if ss.Status == 1 {
+				status[key].To[i].Status = 0
 			}
-			for i, ss := range status[key].Cc {
-				if ss.Status == 1 {
-					status[key].Cc[i].Status = 0
-				}
+		}
+
+		for i, ss := range status[key].Cc {
+			if ss.Status == 1 {
+				status[key].Cc[i].Status = 0
 			}
-			for i, ss := range status[key].Bcc {
-				if ss.Status == 1 {
-					status[key].Bcc[i].Status = 0
-				}
+		}
+
+		for i, ss := range status[key].Bcc {
+			if ss.Status == 1 {
+				status[key].Bcc[i].Status = 0
 			}
 		}
 	}
@@ -192,7 +201,7 @@ func update_json() {
 	// update status
 	js, err := json.MarshalIndent(status, "", "\t")
 	if err != nil {
-		log.Println(err)
+		log.Println("error while saving json file: %s", err)
 	} else {
 		// here we save the file
 		write_json(config.JsonPath, js)
@@ -200,11 +209,9 @@ func update_json() {
 }
 
 func try_again(file string, msg *mail.Message) {
-
 	update_json()
 
 	in_progress := false
-
 	mail_status := status[file]
 
 	// rebuild message (strip Bcc)
@@ -213,6 +220,7 @@ func try_again(file string, msg *mail.Message) {
 		if key == "Bcc" {
 			continue
 		}
+
 		buffer.WriteString(key)
 		buffer.WriteString(": ")
 		header_line := strings.Join(msg.Header[key], ",")
@@ -297,6 +305,7 @@ func parse_mail(file string) {
 		return
 	}
 	defer f.Close()
+
 	msg, err := mail.ReadMessage(f)
 	if err != nil {
 		log.Println(file, "unable to parse mail file,", err)
@@ -312,12 +321,14 @@ func parse_mail(file string) {
 		mail_status.From = msg.Header["From"][0]
 	}
 
+	// TODO: refactor/shrink code here
 	if _, ok := msg.Header["To"]; ok {
 		to_addresses, err := msg.Header.AddressList("To")
 		if err != nil {
 			log.Println(file, "unable to parse mail \"To\" header,", err)
 			return
 		}
+
 		for _, addr := range to_addresses {
 			ss := SentStatus{Address: addr.Address, Status: 0, NextAttempt: time.Now()}
 			mail_status.To = append(mail_status.To, &ss)
@@ -330,6 +341,7 @@ func parse_mail(file string) {
 			log.Println(file, "unable to parse mail \"Cc\" header,", err)
 			return
 		}
+
 		for _, addr := range cc_addresses {
 			ss := SentStatus{Address: addr.Address, Status: 0, NextAttempt: time.Now()}
 			mail_status.Cc = append(mail_status.Cc, &ss)
@@ -342,6 +354,7 @@ func parse_mail(file string) {
 			log.Println(file, "unable to parse mail \"Bcc\" header,", err)
 			return
 		}
+
 		for _, addr := range bcc_addresses {
 			ss := SentStatus{Address: addr.Address, Status: 0, NextAttempt: time.Now()}
 			mail_status.Bcc = append(mail_status.Bcc, &ss)
@@ -365,13 +378,17 @@ func scan_spooldir(dir string) {
 		log.Println("unable to access spool directory,", err)
 		return
 	}
+
 	for _, entry := range d {
+		// ignore directories and dotfiles
 		if entry.IsDir() {
 			continue
 		}
+
 		if strings.HasPrefix(entry.Name(), ".") {
 			continue
 		}
+
 		abs, err := filepath.Abs(path.Join(config.SpoolDir, entry.Name()))
 		if err != nil {
 			log.Println("unable to get absolute path,", err)
@@ -386,17 +403,21 @@ func scan_spooldir(dir string) {
 
 func main() {
 	parse_options()
+
 	if config.PlainUser != "" {
 		config.SmtpAuth = smtp.PlainAuth("", config.PlainUser, config.PlainPassword, strings.Split(config.SmtpAddr, ":")[0])
 	} else if config.MD5User != "" {
 		config.SmtpAuth = smtp.CRAMMD5Auth(config.MD5User, config.MD5Password)
 	}
+
 	log.Printf("--- starting Spoolgore (pid: %d) on directory %s ---", os.Getpid(), config.SpoolDir)
 	if config.JsonPath == "" {
 		config.JsonPath = path.Join(config.SpoolDir, ".spoolgore.js")
 	}
+
 	status = make(map[string]MailStatus)
 	read_json(config.JsonPath)
+
 	timer := time.NewTimer(time.Second * time.Duration(config.Freq))
 	urg := make(chan os.Signal, 1)
 	hup := make(chan os.Signal, 1)
@@ -405,6 +426,7 @@ func main() {
 	signal.Notify(hup, syscall.SIGHUP)
 	signal.Notify(tstp, syscall.SIGTSTP)
 	blocked := false
+
 	for {
 		select {
 		case <-timer.C:
