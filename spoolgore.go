@@ -1,37 +1,37 @@
 package main
 
 import (
+	"bytes"
+	_ "crypto/sha512"
+	"encoding/json"
 	"flag"
-	"time"
-	"log"
 	"io"
 	"io/ioutil"
-	"net/smtp"
+	"log"
 	"net/mail"
-	"strings"
-	"bytes"
+	"net/smtp"
 	"os"
+	"os/signal"
 	"path"
 	"path/filepath"
-	"encoding/json"
-	"os/signal"
+	"strings"
 	"syscall"
-	_ "crypto/sha512"
+	"time"
 )
 
 type Config struct {
-	SpoolDir string
-	SmtpAddr string
-	SmtpUser string
-	SmtpPassword string
-	PlainUser string
+	SpoolDir      string
+	SmtpAddr      string
+	SmtpUser      string
+	SmtpPassword  string
+	PlainUser     string
 	PlainPassword string
-	MD5User string
-	MD5Password string
-	SmtpAuth smtp.Auth
-	Freq int
-	MaxAttempts int
-	JsonPath string
+	MD5User       string
+	MD5Password   string
+	SmtpAuth      smtp.Auth
+	Freq          int
+	MaxAttempts   int
+	JsonPath      string
 }
 
 var config Config
@@ -43,18 +43,18 @@ var config Config
 */
 
 type SentStatus struct {
-	Address string
-	Status int
-	Attempts int
+	Address     string
+	Status      int
+	Attempts    int
 	NextAttempt time.Time
-	Error string
+	Error       string
 }
 
 type MailStatus struct {
-	From string
-	To []*SentStatus
-	Cc []*SentStatus
-	Bcc []*SentStatus
+	From     string
+	To       []*SentStatus
+	Cc       []*SentStatus
+	Bcc      []*SentStatus
 	Attempts int
 	Enqueued time.Time
 }
@@ -78,19 +78,19 @@ func parse_options() {
 }
 
 func send_mail(ss *SentStatus, file string, from string, to string, msg *[]byte) {
-	log.Println(file,"sending mail to", to, "attempt:", ss.Attempts)
+	log.Println(file, "sending mail to", to, "attempt:", ss.Attempts)
 	dest := []string{to}
 	err := smtp.SendMail(config.SmtpAddr, config.SmtpAuth, from, dest, *msg)
 	if err != nil {
-		log.Println(file,"SMTP error, mail to", to, err)
+		log.Println(file, "SMTP error, mail to", to, err)
 		ss.Status = 0
 		ss.Attempts++
 		ss.Error = err.Error()
 		if ss.Attempts >= config.MaxAttempts {
-			log.Println(file, "max SMTP attempts reached for",to, "... giving up")
+			log.Println(file, "max SMTP attempts reached for", to, "... giving up")
 			ss.Status = 2
 		}
-		if (ss.Attempts > 30) {
+		if ss.Attempts > 30 {
 			ss.NextAttempt = time.Now().Add(time.Duration(30) * time.Duration(60) * time.Second)
 		} else {
 			ss.NextAttempt = time.Now().Add(time.Duration(ss.Attempts) * time.Duration(60) * time.Second)
@@ -109,15 +109,15 @@ func spool_flush() {
 		for i, _ := range status[key].To {
 			status[key].To[i].NextAttempt = now
 			num += 1
-				}
+		}
 		for i, _ := range status[key].Cc {
 			status[key].Cc[i].NextAttempt = now
 			num += 1
-				}
+		}
 		for i, _ := range status[key].Bcc {
 			status[key].Bcc[i].NextAttempt = now
 			num += 1
-				}
+		}
 	}
 	log.Printf("spool directory flushed (%d messages in the queue)", num)
 	scan_spooldir(config.SpoolDir)
@@ -162,7 +162,7 @@ func read_json(file string) {
 func write_json(file string, j []byte) {
 	f, err := os.Create(file)
 
-	if (err != nil) {
+	if err != nil {
 		log.Println(err)
 		return
 	}
@@ -209,7 +209,7 @@ func try_again(file string, msg *mail.Message) {
 
 	// rebuild message (strip Bcc)
 	var buffer bytes.Buffer
-	for key,_ := range msg.Header {
+	for key, _ := range msg.Header {
 		if key == "Bcc" {
 			continue
 		}
@@ -222,8 +222,8 @@ func try_again(file string, msg *mail.Message) {
 
 	buffer.WriteString("\r\n")
 	_, err := io.Copy(&buffer, msg.Body)
-	if (err != nil) {
-		log.Println(file,"unable to reassemble the mail message", err);
+	if err != nil {
+		log.Println(file, "unable to reassemble the mail message", err)
 		return
 	}
 
@@ -233,15 +233,15 @@ func try_again(file string, msg *mail.Message) {
 	for i, send_status := range mail_status.To {
 		s := send_status.Status
 		switch s {
-			case 0:
-				in_progress = true
-				if send_status.NextAttempt.Equal(time.Now()) == true || send_status.NextAttempt.Before(time.Now()) == true {
-					// do not use send_status here !!!
-					mail_status.To[i].Status = 1
-					go send_mail(mail_status.To[i], file, mail_status.From, send_status.Address, &b)
-				}
-			case 1:
-				in_progress = true
+		case 0:
+			in_progress = true
+			if send_status.NextAttempt.Equal(time.Now()) == true || send_status.NextAttempt.Before(time.Now()) == true {
+				// do not use send_status here !!!
+				mail_status.To[i].Status = 1
+				go send_mail(mail_status.To[i], file, mail_status.From, send_status.Address, &b)
+			}
+		case 1:
+			in_progress = true
 		}
 	}
 
@@ -249,15 +249,15 @@ func try_again(file string, msg *mail.Message) {
 	for i, send_status := range mail_status.Cc {
 		s := send_status.Status
 		switch s {
-			case 0:
-				in_progress = true
-				if send_status.NextAttempt.Equal(time.Now()) == true || send_status.NextAttempt.Before(time.Now()) == true {
-					// do not use send_status here !!!
-					mail_status.Cc[i].Status = 1
-					go send_mail(mail_status.Cc[i], file, mail_status.From, send_status.Address, &b)
-				}
-			case 1:
-				in_progress = true
+		case 0:
+			in_progress = true
+			if send_status.NextAttempt.Equal(time.Now()) == true || send_status.NextAttempt.Before(time.Now()) == true {
+				// do not use send_status here !!!
+				mail_status.Cc[i].Status = 1
+				go send_mail(mail_status.Cc[i], file, mail_status.From, send_status.Address, &b)
+			}
+		case 1:
+			in_progress = true
 		}
 	}
 
@@ -265,25 +265,23 @@ func try_again(file string, msg *mail.Message) {
 	for i, send_status := range mail_status.Bcc {
 		s := send_status.Status
 		switch s {
-			case 0:
-				in_progress = true
-				if send_status.NextAttempt.Equal(time.Now()) == true || send_status.NextAttempt.Before(time.Now()) == true {
-					// do not use send_status here !!!
-					mail_status.Bcc[i].Status = 1
-					go send_mail(mail_status.Bcc[i], file, mail_status.From, send_status.Address, &b)
-				}
-			case 1:
-				in_progress = true
+		case 0:
+			in_progress = true
+			if send_status.NextAttempt.Equal(time.Now()) == true || send_status.NextAttempt.Before(time.Now()) == true {
+				// do not use send_status here !!!
+				mail_status.Bcc[i].Status = 1
+				go send_mail(mail_status.Bcc[i], file, mail_status.From, send_status.Address, &b)
+			}
+		case 1:
+			in_progress = true
 		}
 	}
-
-
 
 	if in_progress == false {
 		// first we try to remove the file, on error we avoid to respool the file
 		err := os.Remove(file)
 		if err != nil {
-			log.Println(file,"unable to remove mail file,", err)
+			log.Println(file, "unable to remove mail file,", err)
 			return
 		}
 		// ok we can now remove the item from the status
@@ -295,13 +293,13 @@ func try_again(file string, msg *mail.Message) {
 func parse_mail(file string) {
 	f, err := os.Open(file)
 	if err != nil {
-		log.Println(file,"unable to open mail file,", err)
+		log.Println(file, "unable to open mail file,", err)
 		return
 	}
 	defer f.Close()
 	msg, err := mail.ReadMessage(f)
 	if err != nil {
-		log.Println(file,"unable to parse mail file,", err)
+		log.Println(file, "unable to parse mail file,", err)
 		return
 	}
 
@@ -310,48 +308,48 @@ func parse_mail(file string) {
 	mail_status.Cc = make([]*SentStatus, 0)
 	mail_status.Bcc = make([]*SentStatus, 0)
 
-	if _,ok := msg.Header["From"]; ok {
+	if _, ok := msg.Header["From"]; ok {
 		mail_status.From = msg.Header["From"][0]
 	}
 
-	if _,ok := msg.Header["To"]; ok {
+	if _, ok := msg.Header["To"]; ok {
 		to_addresses, err := msg.Header.AddressList("To")
 		if err != nil {
-			log.Println(file,"unable to parse mail \"To\" header,", err)
+			log.Println(file, "unable to parse mail \"To\" header,", err)
 			return
 		}
-		for _,addr := range to_addresses {
-			ss := SentStatus{Address: addr.Address, Status:0, NextAttempt: time.Now()}
+		for _, addr := range to_addresses {
+			ss := SentStatus{Address: addr.Address, Status: 0, NextAttempt: time.Now()}
 			mail_status.To = append(mail_status.To, &ss)
 		}
 	}
 
-	if _,ok := msg.Header["Cc"]; ok {
+	if _, ok := msg.Header["Cc"]; ok {
 		cc_addresses, err := msg.Header.AddressList("Cc")
 		if err != nil {
-			log.Println(file,"unable to parse mail \"Cc\" header,", err)
+			log.Println(file, "unable to parse mail \"Cc\" header,", err)
 			return
 		}
-		for _,addr := range cc_addresses {
-			ss := SentStatus{Address: addr.Address, Status:0, NextAttempt: time.Now()}
+		for _, addr := range cc_addresses {
+			ss := SentStatus{Address: addr.Address, Status: 0, NextAttempt: time.Now()}
 			mail_status.Cc = append(mail_status.Cc, &ss)
 		}
 	}
 
-	if _,ok := msg.Header["Bcc"]; ok {
+	if _, ok := msg.Header["Bcc"]; ok {
 		bcc_addresses, err := msg.Header.AddressList("Bcc")
 		if err != nil {
-			log.Println(file,"unable to parse mail \"Bcc\" header,", err)
+			log.Println(file, "unable to parse mail \"Bcc\" header,", err)
 			return
 		}
-		for _,addr := range bcc_addresses {
-			ss := SentStatus{Address: addr.Address, Status:0, NextAttempt: time.Now()}
+		for _, addr := range bcc_addresses {
+			ss := SentStatus{Address: addr.Address, Status: 0, NextAttempt: time.Now()}
 			mail_status.Bcc = append(mail_status.Bcc, &ss)
 		}
 	}
 
 	// is the mail already collected ?
-	if _,ok := status[file]; ok {
+	if _, ok := status[file]; ok {
 		try_again(file, msg)
 		return
 	}
@@ -374,7 +372,7 @@ func scan_spooldir(dir string) {
 		if strings.HasPrefix(entry.Name(), ".") {
 			continue
 		}
-		abs,err := filepath.Abs(path.Join(config.SpoolDir, entry.Name()))
+		abs, err := filepath.Abs(path.Join(config.SpoolDir, entry.Name()))
 		if err != nil {
 			log.Println("unable to get absolute path,", err)
 			continue
@@ -409,21 +407,21 @@ func main() {
 	blocked := false
 	for {
 		select {
-			case <- timer.C:
-				if blocked == false {
-					scan_spooldir(config.SpoolDir)
-				}
-				timer.Reset(time.Second * time.Duration(config.Freq))
-			case <-urg:
-				spool_flush()
-				blocked = false
-			case <-hup:
-				read_json(config.JsonPath)
-				blocked = false
-				log.Println("status reloaded")
-			case <-tstp:
-				blocked = true
-				log.Println("Spoolgore is suspended, send SIGHUP or SIGURG to unpause it")
+		case <-timer.C:
+			if blocked == false {
+				scan_spooldir(config.SpoolDir)
+			}
+			timer.Reset(time.Second * time.Duration(config.Freq))
+		case <-urg:
+			spool_flush()
+			blocked = false
+		case <-hup:
+			read_json(config.JsonPath)
+			blocked = false
+			log.Println("status reloaded")
+		case <-tstp:
+			blocked = true
+			log.Println("Spoolgore is suspended, send SIGHUP or SIGURG to unpause it")
 		}
 	}
 }
