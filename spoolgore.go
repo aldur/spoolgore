@@ -55,7 +55,6 @@ type MailStatus struct {
 	To       []*SentStatus
 	Cc       []*SentStatus
 	Bcc      []*SentStatus
-	Attempts int
 	Enqueued time.Time
 }
 
@@ -96,6 +95,7 @@ func send_mail(ss *SentStatus, file string, from string, to string, msg *[]byte)
 		} else {
 			ss.NextAttempt = time.Now().Add(time.Duration(ss.Attempts) * time.Duration(60) * time.Second)
 		}
+
 		return
 	}
 
