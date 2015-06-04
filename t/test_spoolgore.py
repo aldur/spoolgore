@@ -15,7 +15,7 @@ import smtpd
 import os.path
 
 from email.mime.text import MIMEText
-from nose.tools import assert_equals, assert_is_not_none, nottest
+from nose.tools import assert_equals, assert_is_not_none, assert_false
 
 SPOOLGORE_EXECUTABLE = "./spoolgore"
 
@@ -58,11 +58,11 @@ class MockSMTPServer(smtpd.SMTPServer, object):
         self.event.set()
 
         if self.fake_errors:
-            return '550 No such user here'
+            return '500 Generic Error'
         return None
 
     def clear(self):
-        self.mails = dict()
+        self.mails = list()
         self.event.clear()
 
     @property
@@ -116,8 +116,7 @@ class TestSpoolgore(unittest.TestSuite, object):
     def teardown_class(cls):
         cls.spoolgore.terminate()
 
-        cls.server.close()
-        cls.thread.join()
+        cls.thread.join(1)
 
     def teardown(self):
         self.server.clear()
@@ -132,17 +131,18 @@ class TestSpoolgore(unittest.TestSuite, object):
         mail = self.server.last
         assert_is_not_none(mail)
 
-    @nottest
     def test_attempts(self):
         self.server.fake_errors = True
 
         path = spoool_mail("Base email with attempts")
         for i in range(5):
+            self.spoolgore.send_signal(signal.SIGURG)
             self.server.event.wait()
             self.server.event.clear()
 
+        time.sleep(1)
         with open(JSON_STATS) as json_stats:
             j = json.loads(json_stats.read())
-            print(j[path])
+            assert_false(path in j)
 
         self.server.fake_errors = False
