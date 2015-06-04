@@ -10,12 +10,13 @@ import signal
 import json
 import subprocess
 import shutil
-import smtpd
+import secure_smtpd
+# import smtpd
 
 import os.path
 
 from email.mime.text import MIMEText
-from nose.tools import assert_equals, assert_is_not_none, assert_false
+from nose.tools import assert_equals, assert_is_not_none, assert_false, nottest
 
 SPOOLGORE_EXECUTABLE = "./spoolgore"
 
@@ -43,12 +44,14 @@ def teardown_module():
     shutil.rmtree(SPOOL_DIRECTORY, ignore_errors=True)
 
 
-class MockSMTPServer(smtpd.SMTPServer, object):
+class MockSMTPServer(secure_smtpd.SMTPServer, object):
 
     def __init__(self, localhost, fake_errors=False):
         super(MockSMTPServer, self).__init__(
             localhost,
-            None)
+            None,
+            process_count=1
+        )
         self.fake_errors = fake_errors
         self.mails = list()
         self.event = threading.Event()
@@ -116,7 +119,8 @@ class TestSpoolgore(unittest.TestSuite, object):
     def teardown_class(cls):
         cls.spoolgore.terminate()
 
-        cls.thread.join(1)
+        cls.server.close()
+        cls.thread.join()
 
     def teardown(self):
         self.server.clear()
@@ -131,6 +135,7 @@ class TestSpoolgore(unittest.TestSuite, object):
         mail = self.server.last
         assert_is_not_none(mail)
 
+    @nottest
     def test_attempts(self):
         self.server.fake_errors = True
 
